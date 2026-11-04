@@ -1,0 +1,17 @@
+# Claves y certificados
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Ansible Vault: contraseña y datos locales
+.vault_pass*
+*.retry
+
+# Inventario real (se sube uno de ejemplo)
+inventory.ini
+hosts
+
+# Archivos de entorno y temporales
+.env
+*.swp
