@@ -1,0 +1,147 @@
+---
+- name: Configuración base del servidor lab
+  hosts: lab
+  become: true
+
+  tasks:
+    - name: Instalar paquetes del stack
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - mariadb-server
+          - php-fpm
+          - php-mysql
+          - ufw
+          - fail2ban
+        state: present
+        update_cache: true
+
+    - name: Permitir SSH (perfil OpenSSH)
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Permitir HTTP y HTTPS (solo TCP)
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: ["80", "443"]
+
+    - name: Activar el firewall con entrada denegada por defecto
+      community.general.ufw:
+        state: enabled
+        default: deny
+        direction: incoming
+
+    - name: Parar, desactivar y enmascarar servicios innecesarios
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop:
+        - cups
+        - cups.socket
+        - cups.path
+        - cups-browsed
+        - avahi-daemon
+        - avahi-daemon.socket
+
+    - name: Configurar fail2ban (jail.local)
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [DEFAULT]
+          bantime  = 10m
+          findtime = 10m
+          maxretry = 5
+          ignoreip = 127.0.0.1/8 ::1 10.0.2.2
+
+          [sshd]
+          enabled = true
+          mode = aggressive
+      notify: Reiniciar fail2ban
+
+    - name: Crear carpeta de certificados
+      ansible.builtin.file:
+        path: /etc/ssl/lab
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copiar certificado TLS
+      ansible.builtin.copy:
+        src: /home/hannibalsec/lab.local.pem
+        dest: /etc/ssl/lab/lab.local.pem
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Recargar nginx
+
+    - name: Copiar clave privada TLS
+      ansible.builtin.copy:
+        src: /home/hannibalsec/lab.local-key.pem
+        dest: /etc/ssl/lab/lab.local-key.pem
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: Recargar nginx
+
+    - name: Instalar configuración del sitio lab.local
+      ansible.builtin.copy:
+        src: files/lab.local.conf
+        dest: /etc/nginx/sites-available/lab.local
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Recargar nginx
+
+    - name: Activar el sitio lab.local
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/lab.local
+        dest: /etc/nginx/sites-enabled/lab.local
+        state: link
+      notify: Recargar nginx
+
+    - name: Desactivar el sitio por defecto
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Recargar nginx
+
+    - name: Endurecer SSH (configuración en sshd_config.d)
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin no
+          MaxAuthTries 3
+          X11Forwarding no
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Recargar ssh
+
+  handlers:
+    - name: Reiniciar fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
+
+    - name: Recargar nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+
+    - name: Recargar ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded
