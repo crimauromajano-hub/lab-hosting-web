@@ -29,12 +29,17 @@ En la fase 1 el servidor se configuró a mano. Aquí se automatiza con **Ansible
         state: present
         update_cache: true
 
-    - name: Permitir SSH, HTTP y HTTPS (solo TCP)
+    - name: Permitir SSH (perfil OpenSSH)
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Permitir HTTP y HTTPS (solo TCP)
       community.general.ufw:
         rule: allow
         port: "{{ item }}"
         proto: tcp
-      loop: ["22", "80", "443"]
+      loop: ["80", "443"]
 
     - name: Activar el firewall con entrada denegada por defecto
       community.general.ufw:
@@ -53,8 +58,25 @@ En la fase 1 el servidor se configuró a mano. Aquí se automatiza con **Ansible
 | `ansible.builtin.apt` con `state: present` | Comprueba que los paquetes de la lista estén instalados y, si no, los instala |
 | `community.general.ufw` con `loop` | Abre los puertos 22, 80 y 443 (solo TCP), uno por iteración |
 | `state: enabled` + `default: deny` | Activa el firewall y deniega por defecto todo el tráfico entrante que no esté permitido |
-
+| `ansible.builtin.systemd` con `masked: true` | Deshabilita y enmascara servicios innecesarios (`cups`, `avahi-daemon`...) |
+| `ansible.builtin.systemd` en handlers | Reinicia o recarga servicios solo si su configuración ha cambiado |
 Igual que en la configuración manual, SSH se permite antes de activar el firewall.
+El playbook también deshabilita servicios innecesarios para reducir la 
+superficie de ataque: `cups`, `cups.socket`, `cups.path`, `cups-browsed`, 
+`avahi-daemon` y `avahi-daemon.socket`. Enmascararlos con `masked: true` 
+impide que se reactiven accidentalmente.
+
+## Preparación
+
+Crea el inventario a partir del ejemplo:
+
+```bash
+cd ansible/
+cp inventory.example inventory.ini
+```
+
+Edita `inventory.ini` y sustituye `<USUARIO>` por tu usuario en la VM.  
+`inventory.ini` está en `.gitignore` — no se sube al repositorio.
 
 ## Ejecución
 
@@ -94,7 +116,7 @@ tasks:
 
 handlers:
   - name: Recargar nginx
-    ansible.builtin.service:
+    ansible.builtin.systemd:
       name: nginx
       state: reloaded
 ```
